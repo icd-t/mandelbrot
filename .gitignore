@@ -10,3 +10,6 @@ a.out
 !/src/*
 !/output/
 !/output/*
+!/examples/
+!/examples/*
+/examples/270-megapixel.bmp

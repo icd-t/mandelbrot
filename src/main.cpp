@@ -1,5 +1,6 @@
 // Generates an image of the mandelbrot set, a fractal based in the complex
 // plane using the formula z=z^2+c. https://en.wikipedia.org/wiki/Mandelbrot_set
+#include <chrono>
 #include <complex>
 #include <cstdint>
 #include <fstream>
@@ -77,7 +78,7 @@ int divergence(double x, double y, int n) {
   }
 
   // return the maximum divergence.
-  return max;
+  return (max / n) % 255;
 }
 
 // Runs a color pass on the image. For each color channel, run a divergence
@@ -130,7 +131,9 @@ void writeHeader(ofstream &f, uint32_t w, uint32_t h) {
 }
 
 int main(int argc, char **argv) {
-  //
+  // Start timer
+  auto timeStart = chrono::high_resolution_clock::now();
+
   switch (argc) {
   case 1:
     cout << "No arguments supplied, using defauls." << endl;
@@ -182,22 +185,27 @@ int main(int argc, char **argv) {
   for (int i = 0; i < g_height; i++) {
     for (int j = 0; j < g_width; j++) {
       // Run multiple passes. The numbers define the colors, and are just vibes.
-      // They don't look that good tbh.
-      pass(img, j, i, 1, 1, 1);
-      pass(img, j, i, 3, 3, 3);
-      pass(img, j, i, 1, 2, 3);
-      pass(img, j, i, 13, 17, 20);
-      pass(img, j, i, 100, 75, 50);
-      pass(img, j, i, i % 5, j % 5, (i * j) % 5);
-      pass(img, j, i, i % 10, j % 10, (i * j) % 10, 0.0001);
+      pass(img, j, i, 30, 25, 20, 1);
+      pass(img, j, i, i % 5, j % 5, (i * j) % 5, 10);
+      pass(img, j, i, i % 10, 1, (j) % 10, 1);
     }
+    // Calculate and print progress to terminal
     progress = (static_cast<double>(i) / static_cast<double>(g_width)) * 100.0f;
     cout << "\u001b[FProgress: (" << fixed << setprecision(2) << progress
          << "%)" << endl;
   }
+  cout << endl;
 
   // Output img to the file
+  cout << "Outputting to " << g_output << endl;
   outputImage(fout, img);
+
+  // Print time to complete
+  auto timeStop = chrono::high_resolution_clock::now();
+  auto duration =
+      chrono::duration_cast<chrono::microseconds>(timeStop - timeStart);
+  cout << "Finished in " << setprecision(4) << (duration.count() / 1000000.0f)
+       << "s" << endl;
 
   // Clean up and exit
   fout.close();
