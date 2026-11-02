@@ -1,0 +1,12 @@
+*
+a.out
+!README.md
+!output.bmp
+!/.git/
+!/.git/*
+!.gitignore
+
+!/src/
+!/src/*
+!/output/
+!/output/*
