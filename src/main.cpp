@@ -129,7 +129,7 @@ void writeHeader(ofstream &f, uint32_t w, uint32_t h) {
 
 int main(int argc, char **argv) {
   // Open file
-  ofstream fout("output.bmp", ios::binary);
+  ofstream fout("output/image.bmp", ios::binary);
 
   // Generate file header
   writeHeader(fout, width, height);
