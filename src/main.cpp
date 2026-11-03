@@ -3,6 +3,7 @@
 #include <chrono>
 #include <complex>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -57,8 +58,31 @@ void outputImage(ofstream &f, Image &image) {
   return;
 }
 
-// Returns the value of z = z^2 + c for the complex number defined by c=x+yi
-// after n itterations.
+// Updated way of calculating divergence. It stores the maximum values of all
+// itterations (up to max_itterations) in an array. This can then be indexed
+// instead of calling the divergence function every time.
+void divergenceMap(double *m, double x, double y, uint8_t max_itterations = 255,
+                   uint8_t baseValue = 0x0) {
+  // Reset map to base value. This should be 0x00 99% of the time.
+  memset(m, baseValue, 256 * sizeof(double));
+  // Define complex numbers z, and c in z=z^2+c
+  complex<double> z(0, 0);
+  complex<double> c(((g_xpos) + (x * (g_scale / g_width))),
+                    ((g_ypos) + (y * (g_scale / g_height))));
+  // Calculate max divergence for each itteration
+  z = (z * z) + c;
+  m[0] = abs(z);
+  for (int i = 1; i <= max_itterations; i++) {
+    z = (z * z) + c;
+    if (m[i - 1] < abs(z)) {
+      m[i] = abs(z);
+    }
+  }
+  return;
+}
+
+// Legacy version of divergenceMap. Returns the value of z = z^2 + c for the
+// complex number defined by c=x+yi after n itterations.
 int divergence(double x, double y, int n) {
   double dx = static_cast<double>(x);
   double dy = static_cast<double>(y);
@@ -81,10 +105,38 @@ int divergence(double x, double y, int n) {
   return (max / n) % 255;
 }
 
-// Runs a color pass on the image. For each color channel, run a divergence
-// calculation with a n defined by the r g b values. You can also set the alpha
-// channel. Performans a bitwise xor with the previous pass and the new
-// divergence values.
+// Runs a color pass on a single pixel of an image. Takes in the image, a
+// divergence map, x and y coordinates of the pixel, r g b a scales for output
+// colors, and weather or not to quantize the pass.
+void pass(Image &i, double *m, int x, int y, int r, int g, int b,
+          uint8_t itterations = 1, double alpha = 1.0f, bool quantize = true) {
+  // Attempt at adjusting the alpha channel to the number of itterations.
+  double adjustedAlpha = (alpha / (itterations * itterations));
+  // Quantized version
+  if (quantize) {
+    i.red[x + (y * g_width)] ^= (static_cast<int>(
+        (static_cast<int>(m[itterations]) / itterations) * r * adjustedAlpha));
+    i.green[x + (y * g_width)] ^= (static_cast<int>(
+        (static_cast<int>(m[itterations]) / itterations) * g * adjustedAlpha));
+    i.blue[x + (y * g_width)] ^= (static_cast<int>(
+        (static_cast<int>(m[itterations]) / itterations) * b * adjustedAlpha));
+  }
+  // Unquantized/smooth version
+  else {
+    i.red[x + (y * g_width)] ^=
+        (static_cast<int>((m[itterations] / itterations) * r * adjustedAlpha));
+    i.green[x + (y * g_width)] ^=
+        (static_cast<int>((m[itterations] / itterations) * g * adjustedAlpha));
+    i.blue[x + (y * g_width)] ^=
+        (static_cast<int>((m[itterations] / itterations) * b * adjustedAlpha));
+  }
+  return;
+}
+
+// Legacy version of the pass function. Runs a color pass on the image. For each
+// color channel, run a divergence calculation with a n defined by the r g b
+// values. You can also set the alpha channel. Performans a bitwise xor with the
+// previous pass and the new divergence values.
 void pass(Image &i, int x, int y, int r, int g, int b, float alpha = 1.0f) {
   i.red[x + (y * g_width)] ^=
       static_cast<int>(static_cast<double>(divergence(x, y, r)) * alpha);
@@ -182,12 +234,18 @@ int main(int argc, char **argv) {
   // Loop over all pixels
   cout << endl << endl;
   double progress{0};
+  double *map = (double *)calloc(256, sizeof(double));
   for (int i = 0; i < g_height; i++) {
     for (int j = 0; j < g_width; j++) {
+      // Run a divergence map calculation that will be used in subsequent
+      // passes. Remember to set max_itterations to the largest number of
+      // itterations used in the following passes.
+      divergenceMap(map, j, i, 40, 0x00);
       // Run multiple passes. The numbers define the colors, and are just vibes.
-      pass(img, j, i, 30, 25, 20, 1);
-      pass(img, j, i, i % 5, j % 5, (i * j) % 5, 10);
-      pass(img, j, i, i % 10, 1, (j) % 10, 1);
+      pass(img, map, j, i, 6, 4, 1, 40);
+      pass(img, map, j, i, 5, 3, 2, 30);
+      pass(img, map, j, i, 1, 2, 3, 7, 0.5f, false);
+      pass(img, map, j, i, 2, 3, 5, 2, 8.0f, false);
     }
     // Calculate and print progress to terminal
     progress = (static_cast<double>(i) / static_cast<double>(g_width)) * 100.0f;
@@ -208,6 +266,7 @@ int main(int argc, char **argv) {
        << "s" << endl;
 
   // Clean up and exit
+  delete (map);
   fout.close();
   return 0;
 }
