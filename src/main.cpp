@@ -5,54 +5,79 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <math.h>
 #include <stdlib.h>
+#include <vector>
 
 using namespace std;
 
 // Define argument defaults
 static uint32_t g_width{512};
 static uint32_t g_height{512};
-static double g_xpos{0};
-static double g_ypos{0};
-static double g_scale{1.5};
+static double g_xpos{-2};
+static double g_ypos{-1.5};
+static double g_scale{3};
 static string g_output{"./image.bmp"};
+static uint8_t g_chunksCount{2};
 
 // Image struct. Stores g_width, g_height, arrays for 1-byte rgb values.
-struct Image {
-  uint32_t g_width;
-  uint32_t g_height;
+struct Chunk {
+  uint32_t width;
+  uint32_t height;
   uint8_t *red;
   uint8_t *green;
   uint8_t *blue;
 
   // Constructor, allocates 3 arrays of size w * h
-  Image(uint32_t w, uint32_t h) {
-    g_width = w;
-    g_height = h;
+  Chunk(uint32_t w, uint32_t h) {
+    width = w;
+    height = h;
     red = (uint8_t *)calloc(w * h, 1);
     green = (uint8_t *)calloc(w * h, 1);
     blue = (uint8_t *)calloc(w * h, 1);
   }
 
   // Destructor
-  ~Image() {
-    free(red);
-    free(green);
-    free(blue);
+  ~Chunk() {
+    delete (red);
+    delete (green);
+    delete (blue);
+  }
+};
+
+// A modified vector of chunks, stored for
+struct ChunkContainer {
+  uint8_t count;
+  uint32_t width;
+  uint32_t height;
+  vector<Chunk *> chunks;
+
+  ChunkContainer(uint32_t w, uint32_t h, uint8_t c) {
+    count = c;
+    width = w;
+    height = h;
+    for (int i = 0; i < c; i++) {
+      chunks.push_back(new Chunk(w, h / c));
+    }
+  }
+
+  ~ChunkContainer() {
+    for (int i = 0; i < count; i++) {
+      free(chunks[i]);
+    }
   }
 };
 
 // Ouputs an Image to an ofsteam. Why the hell do bitmaps take values in bgr
 // instead of rgb????
-void outputImage(ofstream &f, Image &image) {
-  for (int i = 0; i < image.g_height; i++) {
-    for (int j = 0; j < image.g_width; j++) {
-      f << image.blue[j + (i * image.g_width)]
-        << image.green[j + (i * image.g_width)]
-        << image.red[j + (i * image.g_width)];
+void outputChunk(ofstream &f, Chunk &c) {
+  for (int i = 0; i < c.height; i++) {
+    for (int j = 0; j < c.width; j++) {
+      f << c.blue[j + (i * c.width)] << c.green[j + (i * c.width)]
+        << c.red[j + (i * c.width)];
     }
   }
   return;
@@ -108,26 +133,26 @@ int divergence(double x, double y, int n) {
 // Runs a color pass on a single pixel of an image. Takes in the image, a
 // divergence map, x and y coordinates of the pixel, r g b a scales for output
 // colors, and weather or not to quantize the pass.
-void pass(Image &i, double *m, int x, int y, int r, int g, int b,
+void pass(Chunk &c, double *m, int x, int y, int r, int g, int b,
           uint8_t itterations = 1, double alpha = 1.0f, bool quantize = true) {
   // Attempt at adjusting the alpha channel to the number of itterations.
   double adjustedAlpha = (alpha / (itterations * itterations));
   // Quantized version
   if (quantize) {
-    i.red[x + (y * g_width)] ^= (static_cast<int>(
+    c.red[x + (y * c.width)] ^= (static_cast<int>(
         (static_cast<int>(m[itterations]) / itterations) * r * adjustedAlpha));
-    i.green[x + (y * g_width)] ^= (static_cast<int>(
+    c.green[x + (y * c.width)] ^= (static_cast<int>(
         (static_cast<int>(m[itterations]) / itterations) * g * adjustedAlpha));
-    i.blue[x + (y * g_width)] ^= (static_cast<int>(
+    c.blue[x + (y * c.width)] ^= (static_cast<int>(
         (static_cast<int>(m[itterations]) / itterations) * b * adjustedAlpha));
   }
   // Unquantized/smooth version
   else {
-    i.red[x + (y * g_width)] ^=
+    c.red[x + (y * c.width)] ^=
         (static_cast<int>((m[itterations] / itterations) * r * adjustedAlpha));
-    i.green[x + (y * g_width)] ^=
+    c.green[x + (y * c.width)] ^=
         (static_cast<int>((m[itterations] / itterations) * g * adjustedAlpha));
-    i.blue[x + (y * g_width)] ^=
+    c.blue[x + (y * c.width)] ^=
         (static_cast<int>((m[itterations] / itterations) * b * adjustedAlpha));
   }
   return;
@@ -137,13 +162,32 @@ void pass(Image &i, double *m, int x, int y, int r, int g, int b,
 // color channel, run a divergence calculation with a n defined by the r g b
 // values. You can also set the alpha channel. Performans a bitwise xor with the
 // previous pass and the new divergence values.
-void pass(Image &i, int x, int y, int r, int g, int b, float alpha = 1.0f) {
-  i.red[x + (y * g_width)] ^=
+void pass(Chunk &c, int x, int y, int r, int g, int b, float alpha = 1.0f) {
+  c.red[x + (y * g_width)] ^=
       static_cast<int>(static_cast<double>(divergence(x, y, r)) * alpha);
-  i.green[x + (y * g_width)] ^=
+  c.green[x + (y * g_width)] ^=
       static_cast<int>(static_cast<double>(divergence(x, y, g)) * alpha);
-  i.blue[x + (y * g_width)] ^=
+  c.blue[x + (y * g_width)] ^=
       static_cast<int>(static_cast<double>(divergence(x, y, b)) * alpha);
+}
+
+void processChunk(Chunk &c, int chunkIndex) {
+  double *map = (double *)calloc(256, sizeof(double));
+  for (int i = 0; i < c.height; i++) {
+    for (int j = 0; j < c.width; j++) {
+      // Run a divergence map calculation that will be used in subsequent
+      // passes. Remember to set max_itterations to the largest number of
+      // itterations used in the following passes.
+      divergenceMap(map, j, (i + c.height * chunkIndex), 40, 0x00);
+      // Run multiple passes. The numbers define the colors, and are just
+      // vibes.
+      pass(c, map, j, i, 6, 4, 1, 40);
+      pass(c, map, j, i, 5, 3, 2, 30);
+      pass(c, map, j, i, 1, 2, 3, 7, 0.5f, false);
+      pass(c, map, j, i, 2, 3, 5, 2, 8.0f, false);
+    }
+  }
+  return;
 }
 
 // Write the header of the .bmp file. Modified from the example files to support
@@ -188,21 +232,15 @@ int main(int argc, char **argv) {
 
   switch (argc) {
   case 1:
-    cout << "No arguments supplied, using defauls." << endl;
     break;
   case 2:
     g_xpos = stod(argv[1]);
     g_ypos = stod(argv[2]);
-    cout << "X Position: " << g_xpos << endl
-         << "Y Position: " << g_ypos << endl;
     break;
   case 4:
     g_xpos = stod(argv[1]);
     g_ypos = stod(argv[2]);
     g_scale = stod(argv[3]);
-    cout << "X Position: " << g_xpos << endl
-         << "Y Position: " << g_ypos << endl
-         << "Scale: " << g_scale << endl;
     break;
   case 6:
     g_xpos = stod(argv[1]);
@@ -210,17 +248,26 @@ int main(int argc, char **argv) {
     g_scale = stod(argv[3]);
     g_width = stoi(argv[4]);
     g_height = stoi(argv[5]);
-    cout << "X Position: " << g_xpos << endl
-         << "Y Position: " << g_ypos << endl
-         << "Scale: " << g_scale << endl
-         << "Horizontal Resolution: " << g_width << endl
-         << "Vertical Resolution: " << g_height << endl;
+    break;
+  case 7:
+    g_xpos = stod(argv[1]);
+    g_ypos = stod(argv[2]);
+    g_scale = stod(argv[3]);
+    g_width = stoi(argv[4]);
+    g_height = stoi(argv[5]);
+    g_chunksCount = stoi(argv[6]);
     break;
   default:
     cout << "Invalid number of arguments." << endl;
     return 1;
     break;
   }
+  cout << "X Position: " << g_xpos << endl
+       << "Y Position: " << g_ypos << endl
+       << "Scale: " << g_scale << endl
+       << "Horizontal Resolution: " << g_width << endl
+       << "Vertical Resolution: " << g_height << endl
+       << "Chunk Count: " << +g_chunksCount << endl;
 
   // Open file
   ofstream fout(g_output, ios::binary);
@@ -228,35 +275,25 @@ int main(int argc, char **argv) {
   // Generate file header
   writeHeader(fout, g_width, g_height);
 
-  // Create image object
-  Image img = Image(g_width, g_height);
+  // Create a new chunk container
+  ChunkContainer cc(g_width, g_height, g_chunksCount);
 
-  // Loop over all pixels
-  cout << endl << endl;
-  double progress{0};
-  double *map = (double *)calloc(256, sizeof(double));
-  for (int i = 0; i < g_height; i++) {
-    for (int j = 0; j < g_width; j++) {
-      // Run a divergence map calculation that will be used in subsequent
-      // passes. Remember to set max_itterations to the largest number of
-      // itterations used in the following passes.
-      divergenceMap(map, j, i, 40, 0x00);
-      // Run multiple passes. The numbers define the colors, and are just vibes.
-      pass(img, map, j, i, 6, 4, 1, 40);
-      pass(img, map, j, i, 5, 3, 2, 30);
-      pass(img, map, j, i, 1, 2, 3, 7, 0.5f, false);
-      pass(img, map, j, i, 2, 3, 5, 2, 8.0f, false);
-    }
-    // Calculate and print progress to terminal
-    progress = (static_cast<double>(i) / static_cast<double>(g_width)) * 100.0f;
-    cout << "\u001b[FProgress: (" << fixed << setprecision(2) << progress
-         << "%)" << endl;
+  // Create a thread for each chunk
+  vector<future<void>> workers;
+  for (int i = 0; i < cc.count; i++) {
+    workers.emplace_back(
+        async(launch::async, processChunk, ref(*cc.chunks[i]), i));
+  }
+  // Wait for rendering to be complete
+  for (auto &fut : workers) {
+    fut.get();
+  }
+
+  // Export chunks to image file
+  for (int c = 0; c < cc.count; c++) {
+    outputChunk(fout, *cc.chunks[c]);
   }
   cout << endl;
-
-  // Output img to the file
-  cout << "Outputting to " << g_output << endl;
-  outputImage(fout, img);
 
   // Print time to complete
   auto timeStop = chrono::high_resolution_clock::now();
@@ -266,7 +303,6 @@ int main(int argc, char **argv) {
        << "s" << endl;
 
   // Clean up and exit
-  delete (map);
   fout.close();
   return 0;
 }

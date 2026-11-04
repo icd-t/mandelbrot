@@ -13,3 +13,8 @@ a.out
 !/examples/
 !/examples/*
 /examples/270-megapixel.bmp
+
+
+# Added by cargo
+
+/target

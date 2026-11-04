@@ -15,13 +15,14 @@ g++ -O3 ./src/main.cpp -o mandelbrot
 ## Usage
 
 There are 5 variables you can control:
- - `X Position` (Default: 0)
- - `Y Position` (Default: 0)
- - `Scale` (Default: 1.5)
+ - `X Position` (Default: -2)
+ - `Y Position` (Default: -1.5)
+ - `Scale` (Default: 3)
  - `Horizontal Resolution` (Default: 512)
  - `Vertical Resolution` (Default: 512)
+ - `Chunk Count` (Default: 1)
 
-Each do more-or-less what they say they do. X/Y Position is the origin point (in the complex plane) where the image will begin rendering. Scale is essentially the zoom level. Horizontal/Vertical Resolution define the resolution of the final output `.bmp`.
+Each do more-or-less what they say they do. X/Y Position is the origin point (in the complex plane) where the image will begin rendering. Scale is essentially the zoom level. Horizontal/Vertical Resolution define the resolution of the final output `.bmp`. Chunk count determines the number of threads to use while rendering. Increasing this number to the number of cpu threads you have will boost performance significantly (maximum: 255).
 
 The program works with the following argument formats:
 
@@ -36,4 +37,7 @@ The program works with the following argument formats:
 ```
 ```bash
 ./mandelbrot [xpos] [ypos] [scale] [h_res] [v_res]
+```
+```bash
+./mandelbrot [xpos] [ypos] [scale] [h_res] [v_res] [chunk_count]
 ```
