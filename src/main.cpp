@@ -1,7 +1,8 @@
 // Generates an image of the mandelbrot set, a fractal based in the complex
 // plane using the formula z=z^2+c. https://en.wikipedia.org/wiki/Mandelbrot_set
+#include <algorithm>
 #include <chrono>
-#include <complex>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -71,6 +72,52 @@ struct ChunkContainer {
   }
 };
 
+// Complex double class
+struct CompD {
+  double real;
+  double imag;
+
+  CompD(double r, double i) {
+    real = r;
+    imag = i;
+  }
+};
+
+// Multiply two complex doubles together
+CompD multCompD(CompD a, CompD b) {
+  double k1 = (a.real * b.real);
+  double k2 = (a.imag * b.imag);
+  double k3 = (a.real + a.imag) * (b.real + b.imag);
+  return {(k1 - k2), (k3 - k1 - k2)};
+}
+
+// Add complex doubles
+void addCompD(CompD &a, CompD b) {
+  a = {(a.real + b.real), (a.imag + b.imag)};
+  return;
+}
+
+void squareCompD(CompD &a) {
+  a = {((a.real * a.real) - (a.imag * a.imag)), (2 * a.real * a.imag)};
+  return;
+}
+
+// I DID NOT WRITE THIS ALGORITHM. This is a hyper-efficient approximation of
+// taking the absolute value of a complex double.
+double approxAbsCompD(CompD a) {
+  double x = fabs(a.real);
+  double y = fabs(a.imag);
+  double max_val = (x > y) ? x : y;
+  double min_val = (x > y) ? y : x;
+  return 0.9604338f * max_val + 0.3978247f * min_val;
+}
+
+// Itterate once over the mandelbrot formula
+void mandelbrotItter(CompD &z, CompD c) {
+  squareCompD(z);
+  addCompD(z, c);
+}
+
 // Ouputs an Image to an ofsteam. Why the hell do bitmaps take values in bgr
 // instead of rgb????
 void outputChunk(ofstream &f, Chunk &c) {
@@ -86,48 +133,41 @@ void outputChunk(ofstream &f, Chunk &c) {
 // Updated way of calculating divergence. It stores the maximum values of all
 // itterations (up to max_itterations) in an array. This can then be indexed
 // instead of calling the divergence function every time.
-void divergenceMap(double *m, double x, double y, uint8_t max_itterations = 255,
-                   uint8_t baseValue = 0x0) {
+void divergenceMap(double *m, double x, double y, bool accurate = false,
+                   uint8_t max_itterations = 255, uint8_t baseValue = 0x0) {
   // Reset map to base value. This should be 0x00 99% of the time.
   memset(m, baseValue, 256 * sizeof(double));
   // Define complex numbers z, and c in z=z^2+c
-  complex<double> z(0, 0);
-  complex<double> c(((g_xpos) + (x * (g_scale / g_width))),
-                    ((g_ypos) + (y * (g_scale / g_height))));
+  CompD z{0, 0};
+  CompD c{((g_xpos) + (x * (g_scale / g_width))),
+          ((g_ypos) + (y * (g_scale / g_height)))};
+  double a{0};
+
   // Calculate max divergence for each itteration
-  z = (z * z) + c;
-  m[0] = abs(z);
+  mandelbrotItter(z, c);
+  if (accurate == false) {
+    m[0] = approxAbsCompD(z);
+  } else {
+    m[0] = hypot(z.real, z.imag);
+  }
   for (int i = 1; i <= max_itterations; i++) {
-    z = (z * z) + c;
-    if (m[i - 1] < abs(z)) {
-      m[i] = abs(z);
+    if (m[i - 1] >= 255) {
+      m[i] = 255;
+    } else {
+      mandelbrotItter(z, c);
+      if (accurate == false) {
+        a = approxAbsCompD(z);
+      } else {
+        a = hypot(z.real, z.imag);
+      }
+      if (m[i - 1] < a) {
+        m[i] = a;
+      } else {
+        m[i] = m[i - 1];
+      }
     }
   }
   return;
-}
-
-// Legacy version of divergenceMap. Returns the value of z = z^2 + c for the
-// complex number defined by c=x+yi after n itterations.
-int divergence(double x, double y, int n) {
-  double dx = static_cast<double>(x);
-  double dy = static_cast<double>(y);
-  // Define complex numbers z, and c in z=z^2+c, as well as max
-  // which will store the maximum divergence
-  complex<double> z(0, 0);
-  complex<double> c(((g_xpos) + (dx * (g_scale / g_width))),
-                    ((g_ypos) + (dy * (g_scale / g_height))));
-  int max{0};
-
-  // Calculate the mandelbrot formula
-  for (int i = 0; i < n; i++) {
-    z = (z * z) + c;
-    if (abs(z) > max) {
-      max = abs(z);
-    }
-  }
-
-  // return the maximum divergence.
-  return (max / n) % 255;
 }
 
 // Runs a color pass on a single pixel of an image. Takes in the image, a
@@ -136,7 +176,7 @@ int divergence(double x, double y, int n) {
 void pass(Chunk &c, double *m, int x, int y, int r, int g, int b,
           uint8_t itterations = 1, double alpha = 1.0f, bool quantize = true) {
   // Attempt at adjusting the alpha channel to the number of itterations.
-  double adjustedAlpha = (alpha / (itterations * itterations));
+  double adjustedAlpha = (alpha);
   // Quantized version
   if (quantize) {
     c.red[x + (y * c.width)] ^= (static_cast<int>(
@@ -158,19 +198,7 @@ void pass(Chunk &c, double *m, int x, int y, int r, int g, int b,
   return;
 }
 
-// Legacy version of the pass function. Runs a color pass on the image. For each
-// color channel, run a divergence calculation with a n defined by the r g b
-// values. You can also set the alpha channel. Performans a bitwise xor with the
-// previous pass and the new divergence values.
-void pass(Chunk &c, int x, int y, int r, int g, int b, float alpha = 1.0f) {
-  c.red[x + (y * g_width)] ^=
-      static_cast<int>(static_cast<double>(divergence(x, y, r)) * alpha);
-  c.green[x + (y * g_width)] ^=
-      static_cast<int>(static_cast<double>(divergence(x, y, g)) * alpha);
-  c.blue[x + (y * g_width)] ^=
-      static_cast<int>(static_cast<double>(divergence(x, y, b)) * alpha);
-}
-
+// Function to process a single chunk with color passes
 void processChunk(Chunk &c, int chunkIndex) {
   double *map = (double *)calloc(256, sizeof(double));
   for (int i = 0; i < c.height; i++) {
@@ -178,13 +206,13 @@ void processChunk(Chunk &c, int chunkIndex) {
       // Run a divergence map calculation that will be used in subsequent
       // passes. Remember to set max_itterations to the largest number of
       // itterations used in the following passes.
-      divergenceMap(map, j, (i + c.height * chunkIndex), 40, 0x00);
-      // Run multiple passes. The numbers define the colors, and are just
-      // vibes.
-      pass(c, map, j, i, 6, 4, 1, 40);
-      pass(c, map, j, i, 5, 3, 2, 30);
-      pass(c, map, j, i, 1, 2, 3, 7, 0.5f, false);
-      pass(c, map, j, i, 2, 3, 5, 2, 8.0f, false);
+      divergenceMap(map, j, (i + c.height * chunkIndex), false, 40, 0x00);
+      //  Run multiple passes. The numbers define the colors, and are just
+      //  vibes.
+      pass(c, map, j, i, 6, 0, 2, 40, 3.0f);
+      pass(c, map, j, i, 6, 3, 2, 30, 2.0f);
+      pass(c, map, j, i, 5, 4, 2, 20, 1.0f, false);
+      pass(c, map, j, i, 10, 3, 5, 2, 1.0f, false);
     }
   }
   return;
@@ -300,7 +328,10 @@ int main(int argc, char **argv) {
   auto duration =
       chrono::duration_cast<chrono::microseconds>(timeStop - timeStart);
   cout << "Finished in " << setprecision(4) << (duration.count() / 1000000.0f)
-       << "s" << endl;
+       << "s (" << setprecision(4)
+       << ((static_cast<double>(g_width * g_height) / 1000000.0f) /
+           (duration.count() / 1000000.0f))
+       << " megapixels/second)" << endl;
 
   // Clean up and exit
   fout.close();
