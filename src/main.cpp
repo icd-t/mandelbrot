@@ -136,7 +136,7 @@ void outputChunk(ofstream &f, Chunk &c) {
 void divergenceMap(double *m, double x, double y, bool accurate = false,
                    uint8_t max_itterations = 255, uint8_t baseValue = 0x0) {
   // Reset map to base value. This should be 0x00 99% of the time.
-  memset(m, baseValue, 256 * sizeof(double));
+  memset(m, 0x0, 256 * sizeof(double));
   // Define complex numbers z, and c in z=z^2+c
   CompD z{0, 0};
   CompD c{((g_xpos) + (x * (g_scale / g_width))),
@@ -145,14 +145,18 @@ void divergenceMap(double *m, double x, double y, bool accurate = false,
 
   // Calculate max divergence for each itteration
   mandelbrotItter(z, c);
+  // The accurate boolean determines weather to approximate values, or calulate
+  // them. Approximation can yield a performance boost of 30%-40%.
   if (accurate == false) {
     m[0] = approxAbsCompD(z);
   } else {
     m[0] = hypot(z.real, z.imag);
   }
   for (int i = 1; i <= max_itterations; i++) {
-    if (m[i - 1] >= 255) {
-      m[i] = 255;
+    // If z ever reaches 2, we can stop calculating, as it is provably not in
+    // the set. This sacrafaces color-complexity for performance.
+    if (m[i - 1] >= 2.0f) {
+      m[i] = 5.0f;
     } else {
       mandelbrotItter(z, c);
       if (accurate == false) {
@@ -167,6 +171,11 @@ void divergenceMap(double *m, double x, double y, bool accurate = false,
       }
     }
   }
+  // Go back over the map, and reset the values of anything we know is inside of
+  // the set.
+  if (m[max_itterations - 1] < 2.0f) {
+    memset(m, baseValue, 256 * sizeof(double));
+  }
   return;
 }
 
@@ -175,25 +184,26 @@ void divergenceMap(double *m, double x, double y, bool accurate = false,
 // colors, and weather or not to quantize the pass.
 void pass(Chunk &c, double *m, int x, int y, int r, int g, int b,
           uint8_t itterations = 1, double alpha = 1.0f, bool quantize = true) {
-  // Attempt at adjusting the alpha channel to the number of itterations.
-  double adjustedAlpha = (alpha);
   // Quantized version
   if (quantize) {
     c.red[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<int>(m[itterations]) / itterations) * r * adjustedAlpha));
+        (static_cast<float>(static_cast<int>(m[itterations])) / itterations) *
+        r * alpha));
     c.green[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<int>(m[itterations]) / itterations) * g * adjustedAlpha));
+        (static_cast<float>(static_cast<int>(m[itterations])) / itterations) *
+        g * alpha));
     c.blue[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<int>(m[itterations]) / itterations) * b * adjustedAlpha));
+        (static_cast<float>(static_cast<int>(m[itterations])) / itterations) *
+        b * alpha));
   }
   // Unquantized/smooth version
   else {
     c.red[x + (y * c.width)] ^=
-        (static_cast<int>((m[itterations] / itterations) * r * adjustedAlpha));
+        (static_cast<int>((m[itterations] / itterations) * r * alpha));
     c.green[x + (y * c.width)] ^=
-        (static_cast<int>((m[itterations] / itterations) * g * adjustedAlpha));
+        (static_cast<int>((m[itterations] / itterations) * g * alpha));
     c.blue[x + (y * c.width)] ^=
-        (static_cast<int>((m[itterations] / itterations) * b * adjustedAlpha));
+        (static_cast<int>((m[itterations] / itterations) * b * alpha));
   }
   return;
 }
@@ -203,16 +213,12 @@ void processChunk(Chunk &c, int chunkIndex) {
   double *map = (double *)calloc(256, sizeof(double));
   for (int i = 0; i < c.height; i++) {
     for (int j = 0; j < c.width; j++) {
-      // Run a divergence map calculation that will be used in subsequent
-      // passes. Remember to set max_itterations to the largest number of
-      // itterations used in the following passes.
-      divergenceMap(map, j, (i + c.height * chunkIndex), false, 40, 0x00);
-      //  Run multiple passes. The numbers define the colors, and are just
-      //  vibes.
-      pass(c, map, j, i, 6, 0, 2, 40, 3.0f);
-      pass(c, map, j, i, 6, 3, 2, 30, 2.0f);
-      pass(c, map, j, i, 5, 4, 2, 20, 1.0f, false);
-      pass(c, map, j, i, 10, 3, 5, 2, 1.0f, false);
+      // Run divergence map calculation for the following passes
+      divergenceMap(map, j, (i + c.height * chunkIndex), true, 40, 0x00);
+      // Run color passes
+      for (int k = 0; k < 40; k++) {
+        pass(c, map, j, i, 10, 10, 10, k, 10.0f, false);
+      }
     }
   }
   return;
