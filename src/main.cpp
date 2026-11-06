@@ -190,23 +190,20 @@ void divergenceMap(double *m, double x, double y, bool accurate = false,
 // Runs a color pass on a single pixel of an image. Takes in the image, a
 // divergence map, x and y coordinates of the pixel, r g b a scales for output
 // colors, and weather or not to quantize the pass.
-void pass(Chunk &c, double *m, int x, int y, int r, int g, int b,
-          uint8_t itterations = 1, double alpha = 1.0f, bool quantize = false) {
-  double map_val = m[itterations];
+void pass(Chunk &c, double map_val, int x, int y, int r, int g, int b,
+          bool quantize = false) {
+  int offset = x + (y * c.width);
   // Quantized version
   if (quantize) {
-    c.red[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<float>(static_cast<int>(map_val))) * r * alpha));
-    c.green[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<float>(static_cast<int>(map_val))) * g * alpha));
-    c.blue[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<float>(static_cast<int>(map_val))) * b * alpha));
+    c.red[offset] ^= (static_cast<int>((static_cast<int>(map_val)) * r));
+    c.green[offset] ^= (static_cast<int>((static_cast<int>(map_val)) * g));
+    c.blue[offset] ^= (static_cast<int>((static_cast<int>(map_val)) * b));
   }
   // Unquantized/smooth version
   else {
-    c.red[x + (y * c.width)] ^= (static_cast<int>((map_val)*r * alpha));
-    c.green[x + (y * c.width)] ^= (static_cast<int>((map_val)*g * alpha));
-    c.blue[x + (y * c.width)] ^= (static_cast<int>((map_val)*b * alpha));
+    c.red[offset] ^= (static_cast<int>(map_val * r));
+    c.green[offset] ^= (static_cast<int>(map_val * g));
+    c.blue[offset] ^= (static_cast<int>(map_val * b));
   }
   return;
 }
@@ -226,8 +223,9 @@ void processChunk(Chunk &c, int chunkIndex) {
                g_verticalScaler),
           true, 40);
       // Run color passes
+      // pass(c, map, j, i, 10, 10, 10, 40, 10.0f, false);
       for (int k = 0; k < 40; k++) {
-        pass(c, map, j, i, 10, 10, 10, k, 10.0f, false);
+        pass(c, map[k] * 10.0f, j, i, 10, 10, 10, false);
       }
     }
   }
