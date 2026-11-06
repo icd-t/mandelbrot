@@ -221,9 +221,9 @@ void processChunk(Chunk &c, int chunkIndex) {
           (g_verticalOffset +
            (static_cast<double>(i) + (c.height * (chunkIndex))) *
                g_verticalScaler),
-          true, 40);
+          true, 30);
       // Run color passes
-      // pass(c, map, j, i, 10, 10, 10, 40, 10.0f, false);
+      //      pass(c, map[30] * 10.0f, j, i, 10, 10, 10, false);
       for (int k = 0; k < 40; k++) {
         pass(c, map[k] * 10.0f, j, i, 10, 10, 10, false);
       }
