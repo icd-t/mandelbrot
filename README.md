@@ -48,3 +48,6 @@ The program works with the following argument formats:
 ### Color customization
 
 In the future I plan on changing this as its currently somewhat complicated.
+
+## AI Use Disclaimer
+Neither generative, nor agentic models were used to a significant degree in the creation of this project. All code was written by me, and all debugging was done by hand.
