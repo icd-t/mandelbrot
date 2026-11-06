@@ -1,6 +1,5 @@
 // Generates an image of the mandelbrot set, a fractal based in the complex
 // plane using the formula z=z^2+c. https://en.wikipedia.org/wiki/Mandelbrot_set
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -18,11 +17,18 @@ using namespace std;
 // Define argument defaults
 static uint32_t g_width{512};
 static uint32_t g_height{512};
-static double g_xpos{-2};
-static double g_ypos{-1.5};
-static double g_scale{3};
+static double g_xpos{0};
+static double g_ypos{0};
+static double g_scale{1};
 static string g_output{"./image.bmp"};
 static uint8_t g_chunksCount{2};
+
+// Scaler and offset values
+static double g_aspectRatio{};
+static double g_horizontalScaler{};
+static double g_horizontalOffset{};
+static double g_verticalScaler{};
+static double g_verticalOffset{};
 
 // Image struct. Stores g_width, g_height, arrays for 1-byte rgb values.
 struct Chunk {
@@ -113,9 +119,10 @@ double approxAbsCompD(CompD a) {
 }
 
 // Itterate once over the mandelbrot formula
-void mandelbrotItter(CompD &z, CompD c) {
-  squareCompD(z);
-  addCompD(z, c);
+void mandelbrotItter(CompD &a, CompD b) {
+  double ar = a.real;
+  double ai = a.imag;
+  a = {((ar * ar) - (ai * ai) + b.real), ((2 * ar * ai) + b.imag)};
 }
 
 // Ouputs an Image to an ofsteam. Why the hell do bitmaps take values in bgr
@@ -134,14 +141,14 @@ void outputChunk(ofstream &f, Chunk &c) {
 // itterations (up to max_itterations) in an array. This can then be indexed
 // instead of calling the divergence function every time.
 void divergenceMap(double *m, double x, double y, bool accurate = false,
-                   uint8_t max_itterations = 255, uint8_t baseValue = 0x0) {
+                   uint8_t max_itterations = 255) {
   // Reset map to base value. This should be 0x00 99% of the time.
   memset(m, 0x0, 256 * sizeof(double));
   // Define complex numbers z, and c in z=z^2+c
   CompD z{0, 0};
-  CompD c{((g_xpos) + (x * (g_scale / g_width))),
-          ((g_ypos) + (y * (g_scale / g_height)))};
+  CompD c{x, y};
   double a{0};
+  double previous{0};
 
   // Calculate max divergence for each itteration
   mandelbrotItter(z, c);
@@ -153,9 +160,10 @@ void divergenceMap(double *m, double x, double y, bool accurate = false,
     m[0] = hypot(z.real, z.imag);
   }
   for (int i = 1; i <= max_itterations; i++) {
+    previous = m[i - 1];
     // If z ever reaches 2, we can stop calculating, as it is provably not in
     // the set. This sacrafaces color-complexity for performance.
-    if (m[i - 1] >= 2.0f) {
+    if (previous >= 2.0f) {
       m[i] = 5.0f;
     } else {
       mandelbrotItter(z, c);
@@ -164,17 +172,17 @@ void divergenceMap(double *m, double x, double y, bool accurate = false,
       } else {
         a = hypot(z.real, z.imag);
       }
-      if (m[i - 1] < a) {
+      if (previous < a) {
         m[i] = a;
       } else {
-        m[i] = m[i - 1];
+        m[i] = previous;
       }
     }
   }
   // Go back over the map, and reset the values of anything we know is inside of
   // the set.
   if (m[max_itterations - 1] < 2.0f) {
-    memset(m, baseValue, 256 * sizeof(double));
+    memset(m, 0x0, 256 * sizeof(double));
   }
   return;
 }
@@ -183,38 +191,40 @@ void divergenceMap(double *m, double x, double y, bool accurate = false,
 // divergence map, x and y coordinates of the pixel, r g b a scales for output
 // colors, and weather or not to quantize the pass.
 void pass(Chunk &c, double *m, int x, int y, int r, int g, int b,
-          uint8_t itterations = 1, double alpha = 1.0f, bool quantize = true) {
+          uint8_t itterations = 1, double alpha = 1.0f, bool quantize = false) {
+  double map_val = m[itterations];
   // Quantized version
   if (quantize) {
     c.red[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<float>(static_cast<int>(m[itterations])) / itterations) *
-        r * alpha));
+        (static_cast<float>(static_cast<int>(map_val))) * r * alpha));
     c.green[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<float>(static_cast<int>(m[itterations])) / itterations) *
-        g * alpha));
+        (static_cast<float>(static_cast<int>(map_val))) * g * alpha));
     c.blue[x + (y * c.width)] ^= (static_cast<int>(
-        (static_cast<float>(static_cast<int>(m[itterations])) / itterations) *
-        b * alpha));
+        (static_cast<float>(static_cast<int>(map_val))) * b * alpha));
   }
   // Unquantized/smooth version
   else {
-    c.red[x + (y * c.width)] ^=
-        (static_cast<int>((m[itterations] / itterations) * r * alpha));
-    c.green[x + (y * c.width)] ^=
-        (static_cast<int>((m[itterations] / itterations) * g * alpha));
-    c.blue[x + (y * c.width)] ^=
-        (static_cast<int>((m[itterations] / itterations) * b * alpha));
+    c.red[x + (y * c.width)] ^= (static_cast<int>((map_val)*r * alpha));
+    c.green[x + (y * c.width)] ^= (static_cast<int>((map_val)*g * alpha));
+    c.blue[x + (y * c.width)] ^= (static_cast<int>((map_val)*b * alpha));
   }
   return;
 }
 
 // Function to process a single chunk with color passes
 void processChunk(Chunk &c, int chunkIndex) {
-  double *map = (double *)calloc(256, sizeof(double));
+  // Generate divergence map
+  double map[256]{0};
   for (int i = 0; i < c.height; i++) {
     for (int j = 0; j < c.width; j++) {
       // Run divergence map calculation for the following passes
-      divergenceMap(map, j, (i + c.height * chunkIndex), true, 40, 0x00);
+      divergenceMap(
+          map,
+          (g_horizontalOffset + (static_cast<double>(j) * g_horizontalScaler)),
+          (g_verticalOffset +
+           (static_cast<double>(i) + (c.height * (chunkIndex))) *
+               g_verticalScaler),
+          true, 40);
       // Run color passes
       for (int k = 0; k < 40; k++) {
         pass(c, map, j, i, 10, 10, 10, k, 10.0f, false);
@@ -302,6 +312,18 @@ int main(int argc, char **argv) {
        << "Horizontal Resolution: " << g_width << endl
        << "Vertical Resolution: " << g_height << endl
        << "Chunk Count: " << +g_chunksCount << endl;
+
+  // Generate scaler constants for current chunk
+  g_aspectRatio = {
+      (static_cast<double>(g_height) / static_cast<double>(g_width))};
+  g_horizontalScaler = {2.0f * (g_scale / static_cast<double>(g_width))};
+  g_horizontalOffset = {g_xpos - g_scale};
+  g_verticalScaler = {g_aspectRatio * 2.0f *
+                      (g_scale / static_cast<double>(g_height))};
+  g_verticalOffset = {g_aspectRatio *
+                      (g_ypos * (static_cast<double>(g_chunksCount) /
+                                 static_cast<double>(g_height)) -
+                       g_scale)};
 
   // Open file
   ofstream fout(g_output, ios::binary);
