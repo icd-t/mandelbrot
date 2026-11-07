@@ -385,6 +385,8 @@ void printHelp() {
        << "Set precision (0-255). Values above 64 are extremely slow." << endl;
   cout << setw(15) << left << setfill(' ') << "-t [arg]"
        << "Set number of threads to use." << endl;
+  cout << setw(15) << left << setfill(' ') << "-o [arg]"
+       << "Set ouput file location." << endl;
   return;
 }
 
@@ -424,6 +426,9 @@ bool setGlobals(int argc, char **argv) {
       case 'p':
         g_precision = stoi(argv[i + 1]);
         break;
+      case 'o':
+        g_output = argv[i + 1];
+        break;
       }
     }
   }
@@ -455,7 +460,8 @@ int main(int argc, char **argv) {
          << "Scale: " << g_scale << endl
          << "Horizontal Resolution: " << g_width << endl
          << "Vertical Resolution: " << g_height << endl
-         << "Chunk Count: " << +g_chunksCount << endl;
+         << "Chunk Count: " << +g_chunksCount << endl
+         << "Ouput Location: " << g_output << endl;
   }
 
   // Open file

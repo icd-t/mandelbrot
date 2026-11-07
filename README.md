@@ -30,11 +30,12 @@ The output can be configured using many flags.
 | `-r` | int32 | `512` | Sets both the horizontal and vertical resolution to the same input value |
 | `-p` | int (0-255) | `40` | Sets the level of precision to use. See the note about precision below. |
 | `-t` | int (0-255) | `2` | Sets the number of threads to use. |
+| `-o` | path | `./image.bmp` | Sets the output location. Remember to use the `.bmp` file extension |
 
 Example:
 
 ```bash
-./mandelbrot -x -1.0 -y 0.1 -s 0.1 -r 8196 -p 50 -t 32
+./mandelbrot -x -1.0 -y 0.1 -s 0.1 -r 8196 -p 50 -t 32 -o ~/pictures/mandelbrot.bmp
 ```
 
 ### Precision
