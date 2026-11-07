@@ -1,4 +1,5 @@
-# Mandelbrot Image Generator
+# MandelGen
+
 A *"blazingly"* fast, single-file C++ program that generates an image of the Mandelbrot set. Includes customizable color passes, multi-threaded rendering, and a simple raw bitmap output.
 
 ![Preview 1](./examples/1mp-1.bmp)
@@ -20,6 +21,7 @@ The output can be configured using many flags.
 
 | flag | input-type | default | description |
 | - | - | - | - |
+| `--h` | | | Prints help message. |
 | `-x` | double | `0.0` | Sets the x position of the center of the screen. (Real component) |
 | `-y` | double | `0.0` | Sets the y position of the center of the screen. (Imaginary compnent) |
 | `-s` | double | `1.0` | Sets the scale. Values between 0 and 1 zoom in. Values greater than 1 zoom out. |

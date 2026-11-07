@@ -34,6 +34,9 @@ static double g_horizontalOffset{};
 static double g_verticalScaler{};
 static double g_verticalOffset{};
 
+// Set meta info
+static string m_version{"0.1"};
+
 // Image struct. Stores g_width, g_height, arrays for 1-byte rgb values.
 struct Chunk {
   uint32_t width;
@@ -365,8 +368,33 @@ void writeHeader(ofstream &f, uint32_t w, uint32_t h) {
   return;
 }
 
-// Edit global variables based on program flags
-void setGlobals(int argc, char **argv) {
+// Print help message
+void printHelp() {
+  cout << endl << "    MandelGen (v" << m_version << ")" << endl << endl;
+  cout << setw(15) << left << setfill(' ') << "-x [arg]"
+       << "Set x position (real value offset)." << endl;
+  cout << setw(15) << left << setfill(' ') << "-y [arg]"
+       << "Set y position (real value offset)." << endl;
+  cout << setw(15) << left << setfill(' ') << "-h [arg]"
+       << "Set horizontal resolution." << endl;
+  cout << setw(15) << left << setfill(' ') << "-x [arg]"
+       << "Set vertical resolution." << endl;
+  cout << setw(15) << left << setfill(' ') << "-r [arg]"
+       << "Set horizontal and vertical resolution to same value." << endl;
+  cout << setw(15) << left << setfill(' ') << "-p [arg]"
+       << "Set precision (0-255). Values above 64 are extremely slow." << endl;
+  cout << setw(15) << left << setfill(' ') << "-t [arg]"
+       << "Set number of threads to use." << endl;
+  return;
+}
+
+// Edit global variables based on program flags. Returns true if help message
+// was printed instead of setting values.
+bool setGlobals(int argc, char **argv) {
+  if (argc > 1 && strcmp(argv[1], "--h") == 0) {
+    printHelp();
+    return true;
+  }
   // Set global variables
   for (int i = 1; i < argc - 1; ++i) {
     if (argv[i][0 == '-']) {
@@ -411,6 +439,7 @@ void setGlobals(int argc, char **argv) {
                       (g_ypos * (static_cast<double>(g_chunksCount) /
                                  static_cast<double>(g_height)) -
                        g_scale)};
+  return false;
 }
 
 int main(int argc, char **argv) {
@@ -418,13 +447,16 @@ int main(int argc, char **argv) {
   auto timeStart = chrono::high_resolution_clock::now();
 
   // Set globals
-  setGlobals(argc, argv);
-  cout << "X Position: " << g_xpos << endl
-       << "Y Position: " << g_ypos << endl
-       << "Scale: " << g_scale << endl
-       << "Horizontal Resolution: " << g_width << endl
-       << "Vertical Resolution: " << g_height << endl
-       << "Chunk Count: " << +g_chunksCount << endl;
+  if (setGlobals(argc, argv)) {
+    return 0;
+  } else {
+    cout << "X Position: " << g_xpos << endl
+         << "Y Position: " << g_ypos << endl
+         << "Scale: " << g_scale << endl
+         << "Horizontal Resolution: " << g_width << endl
+         << "Vertical Resolution: " << g_height << endl
+         << "Chunk Count: " << +g_chunksCount << endl;
+  }
 
   // Open file
   ofstream fout(g_output, ios::binary);

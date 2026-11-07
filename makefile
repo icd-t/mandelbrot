@@ -1,4 +1,4 @@
-TARGET = mandelbrot
+TARGET = mandelgen
 CC = g++
 CVER = 26
 CFLAGS = -O3 -march=native -g -Wall -Wextra --std=c++$(CVER) 
