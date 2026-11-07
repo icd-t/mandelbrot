@@ -1,5 +1,6 @@
 // Generates an image of the mandelbrot set, a fractal based in the complex
 // plane using the formula z=z^2+c. https://en.wikipedia.org/wiki/Mandelbrot_set
+#include "../include/quadmath.h"
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -9,10 +10,12 @@
 #include <iomanip>
 #include <iostream>
 #include <math.h>
+#include <stdfloat>
 #include <stdlib.h>
 #include <vector>
 
 using namespace std;
+using pfloat = __float128;
 
 // Define argument defaults
 static uint32_t g_width{512};
@@ -22,6 +25,7 @@ static double g_ypos{0};
 static double g_scale{1};
 static string g_output{"./image.bmp"};
 static uint8_t g_chunksCount{2};
+static uint8_t g_precision{40};
 
 // Scaler and offset values
 static double g_aspectRatio{};
@@ -89,6 +93,17 @@ struct CompD {
   }
 };
 
+// Precise complex double class
+struct pCompD {
+  pfloat real;
+  pfloat imag;
+
+  pCompD(pfloat r, pfloat i) {
+    real = r;
+    imag = i;
+  }
+};
+
 // Multiply two complex doubles together
 CompD multCompD(CompD a, CompD b) {
   double k1 = (a.real * b.real);
@@ -122,6 +137,11 @@ double approxAbsCompD(CompD a) {
 void mandelbrotItter(CompD &a, CompD b) {
   double ar = a.real;
   double ai = a.imag;
+  a = {((ar * ar) - (ai * ai) + b.real), ((2 * ar * ai) + b.imag)};
+}
+void mandelbrotItter(pCompD &a, pCompD b) {
+  pfloat ar = a.real;
+  pfloat ai = a.imag;
   a = {((ar * ar) - (ai * ai) + b.real), ((2 * ar * ai) + b.imag)};
 }
 
@@ -179,10 +199,48 @@ void divergenceMap(double *m, double x, double y, bool accurate = false,
       }
     }
   }
-  // Go back over the map, and reset the values of anything we know is inside of
-  // the set.
+
+  // Go back over the map, and reset the values of anything we know is inside
+  // of the set.
   if (m[max_itterations - 1] < 2.0f) {
     memset(m, 0x0, 256 * sizeof(double));
+  }
+  return;
+}
+void divergenceMap(pfloat *m, pfloat x, pfloat y,
+                   uint8_t max_itterations = 255) {
+  // Reset map to base value. This should be 0x00 99% of the time.
+  memset(m, 0x0, 256 * sizeof(pfloat));
+  // Define complex numbers z, and c in z=z^2+c
+  pCompD z{0, 0};
+  pCompD c{x, y};
+  pfloat a{0};
+  pfloat previous{0};
+
+  // Calculate max divergence for each itteration
+  mandelbrotItter(z, c);
+  m[0] = hypotq(z.real, z.imag);
+  for (int i = 1; i <= max_itterations; i++) {
+    previous = m[i - 1];
+    // If z ever reaches 2, we can stop calculating, as it is provably not in
+    // the set. This sacrafaces color-complexity for performance.
+    if (previous >= 2.0f) {
+      m[i] = 5.0f;
+    } else {
+      mandelbrotItter(z, c);
+      a = hypotq(z.real, z.imag);
+      if (previous < a) {
+        m[i] = a;
+      } else {
+        m[i] = previous;
+      }
+    }
+  }
+
+  // Go back over the map, and reset the values of anything we know is inside
+  // of the set.
+  if (m[max_itterations - 1] < 2.0f) {
+    memset(m, 0x0, 256 * sizeof(pfloat));
   }
   return;
 }
@@ -207,33 +265,72 @@ void pass(Chunk &c, double map_val, int x, int y, int r, int g, int b,
   }
   return;
 }
+void pass(Chunk &c, pfloat map_val, int x, int y, int r, int g, int b,
+          bool quantize = false) {
+  int offset = x + (y * c.width);
+  // Quantized version
+  if (quantize) {
+    c.red[offset] ^= (static_cast<int>((static_cast<int>(map_val)) * r));
+    c.green[offset] ^= (static_cast<int>((static_cast<int>(map_val)) * g));
+    c.blue[offset] ^= (static_cast<int>((static_cast<int>(map_val)) * b));
+  }
+  // Unquantized/smooth version
+  else {
+    c.red[offset] ^= (static_cast<int>(map_val * r));
+    c.green[offset] ^= (static_cast<int>(map_val * g));
+    c.blue[offset] ^= (static_cast<int>(map_val * b));
+  }
+  return;
+}
 
 // Function to process a single chunk with color passes
-void processChunk(Chunk &c, int chunkIndex) {
-  // Generate divergence map
-  double map[256]{0};
-  for (int i = 0; i < c.height; i++) {
-    for (int j = 0; j < c.width; j++) {
-      // Run divergence map calculation for the following passes
-      divergenceMap(
-          map,
-          (g_horizontalOffset + (static_cast<double>(j) * g_horizontalScaler)),
-          (g_verticalOffset +
-           (static_cast<double>(i) + (c.height * (chunkIndex))) *
-               g_verticalScaler),
-          true, 30);
-      // Run color passes
-      //      pass(c, map[30] * 10.0f, j, i, 10, 10, 10, false);
-      for (int k = 0; k < 40; k++) {
-        pass(c, map[k] * 10.0f, j, i, 10, 10, 10, false);
+void processChunk(Chunk &c, int chunkIndex, uint8_t precision) {
+  // Depending on the precision value, use precision floats (float128) or use
+  // standard doubles
+  if (precision < 50) {
+    double map[256]{0};
+    for (int i = 0; i < c.height; i++) {
+      for (int j = 0; j < c.width; j++) {
+        // Run divergence map calculation for the following passes
+        divergenceMap(map,
+                      (g_horizontalOffset +
+                       (static_cast<double>(j) * g_horizontalScaler)),
+                      (g_verticalOffset +
+                       (static_cast<double>(i) + (c.height * (chunkIndex))) *
+                           g_verticalScaler),
+                      true, precision);
+        // Run color passes
+        //      pass(c, map[30] * 10.0f, j, i, 10, 10, 10, false);
+        for (int k = 0; k < 40; k++) {
+          pass(c, map[k] * 10.0f, j, i, 10, 10, 10, false);
+        }
+      }
+    }
+  } else {
+    pfloat map[256]{0};
+    for (int i = 0; i < c.height; i++) {
+      for (int j = 0; j < c.width; j++) {
+        // Run divergence map calculation for the following passes
+        divergenceMap(map,
+                      (g_horizontalOffset +
+                       (static_cast<pfloat>(j) * g_horizontalScaler)),
+                      (g_verticalOffset +
+                       (static_cast<pfloat>(i) + (c.height * (chunkIndex))) *
+                           g_verticalScaler),
+                      precision);
+        // Run color passes
+        //      pass(c, map[30] * 10.0f, j, i, 10, 10, 10, false);
+        for (int k = 0; k < 40; k++) {
+          pass(c, map[k] * 10.0q, j, i, 10, 10, 10, false);
+        }
       }
     }
   }
   return;
 }
 
-// Write the header of the .bmp file. Modified from the example files to support
-// vairable image size
+// Write the header of the .bmp file. Modified from the example files to
+// support vairable image size
 void writeHeader(ofstream &f, uint32_t w, uint32_t h) {
   char format_sig[2] = {'B', 'M'};
   uint32_t file_size = 54 + (w * h * 3);
@@ -268,48 +365,40 @@ void writeHeader(ofstream &f, uint32_t w, uint32_t h) {
   return;
 }
 
-int main(int argc, char **argv) {
-  // Start timer
-  auto timeStart = chrono::high_resolution_clock::now();
-
-  switch (argc) {
-  case 1:
-    break;
-  case 2:
-    g_xpos = stod(argv[1]);
-    g_ypos = stod(argv[2]);
-    break;
-  case 4:
-    g_xpos = stod(argv[1]);
-    g_ypos = stod(argv[2]);
-    g_scale = stod(argv[3]);
-    break;
-  case 6:
-    g_xpos = stod(argv[1]);
-    g_ypos = stod(argv[2]);
-    g_scale = stod(argv[3]);
-    g_width = stoi(argv[4]);
-    g_height = stoi(argv[5]);
-    break;
-  case 7:
-    g_xpos = stod(argv[1]);
-    g_ypos = stod(argv[2]);
-    g_scale = stod(argv[3]);
-    g_width = stoi(argv[4]);
-    g_height = stoi(argv[5]);
-    g_chunksCount = stoi(argv[6]);
-    break;
-  default:
-    cout << "Invalid number of arguments." << endl;
-    return 1;
-    break;
+// Edit global variables based on program flags
+void setGlobals(int argc, char **argv) {
+  // Set global variables
+  for (int i = 1; i < argc - 1; ++i) {
+    if (argv[i][0 == '-']) {
+      switch (argv[i][1]) {
+      case 'x':
+        g_xpos = stoi(argv[i + 1]);
+        break;
+      case 'y':
+        g_ypos = stoi(argv[i + 1]);
+        break;
+      case 's':
+        g_scale = stoi(argv[i + 1]);
+        break;
+      case 'w':
+        g_width = stoi(argv[i + 1]);
+        break;
+      case 'h':
+        g_height = stoi(argv[i + 1]);
+        break;
+      case 'r':
+        g_width = stoi(argv[i + 1]);
+        g_height = stoi(argv[i + 1]);
+        break;
+      case 't':
+        g_chunksCount = stoi(argv[i + 1]);
+        break;
+      case 'p':
+        g_precision = stoi(argv[i + 1]);
+        break;
+      }
+    }
   }
-  cout << "X Position: " << g_xpos << endl
-       << "Y Position: " << g_ypos << endl
-       << "Scale: " << g_scale << endl
-       << "Horizontal Resolution: " << g_width << endl
-       << "Vertical Resolution: " << g_height << endl
-       << "Chunk Count: " << +g_chunksCount << endl;
 
   // Generate scaler constants for current chunk
   g_aspectRatio = {
@@ -322,6 +411,20 @@ int main(int argc, char **argv) {
                       (g_ypos * (static_cast<double>(g_chunksCount) /
                                  static_cast<double>(g_height)) -
                        g_scale)};
+}
+
+int main(int argc, char **argv) {
+  // Start timer
+  auto timeStart = chrono::high_resolution_clock::now();
+
+  // Set globals
+  setGlobals(argc, argv);
+  cout << "X Position: " << g_xpos << endl
+       << "Y Position: " << g_ypos << endl
+       << "Scale: " << g_scale << endl
+       << "Horizontal Resolution: " << g_width << endl
+       << "Vertical Resolution: " << g_height << endl
+       << "Chunk Count: " << +g_chunksCount << endl;
 
   // Open file
   ofstream fout(g_output, ios::binary);
@@ -336,7 +439,7 @@ int main(int argc, char **argv) {
   vector<future<void>> workers;
   for (int i = 0; i < cc.count; i++) {
     workers.emplace_back(
-        async(launch::async, processChunk, ref(*cc.chunks[i]), i));
+        async(launch::async, processChunk, ref(*cc.chunks[i]), i, g_precision));
   }
   // Wait for rendering to be complete
   for (auto &fut : workers) {

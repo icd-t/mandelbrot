@@ -7,43 +7,39 @@ A *"blazingly"* fast, single-file C++ program that generates an image of the Man
 
 ## Building
 
-Compile with GCC or Clang. It is best to use `O3` precision, which will vastly decrease rendering times. Recommended build command:
+
+Use make to compile. Requires `g++` and `libquadmath`.
 
 ```bash
-g++ -O3 ./src/main.cpp -o mandelbrot
+cd mandelbrot && make
 ```
 
 ## Usage
 
-There are 5 variables you can control:
- - `X Position` (Default: 0.0)
- - `Y Position` (Default: 0.0)
- - `Scale` (Default: 2.0)
- - `Horizontal Resolution` (Default: 512)
- - `Vertical Resolution` (Default: 512)
- - `Chunk Count` (Default: 1)
+The output can be configured using many flags.
 
-Each do more-or-less what they say they do. X/Y Position is the origin point (in the complex plane) where the image will begin rendering. Scale is essentially the zoom level. Horizontal/Vertical Resolution define the resolution of the final output `.bmp`. 
+| flag | input-type | default | description |
+| - | - | - | - |
+| `-x` | double | `0.0` | Sets the x position of the center of the screen. (Real component) |
+| `-y` | double | `0.0` | Sets the y position of the center of the screen. (Imaginary compnent) |
+| `-s` | double | `1.0` | Sets the scale. Values between 0 and 1 zoom in. Values greater than 1 zoom out. |
+| `-w` | int32 | `512` | Sets the horizontal resolution (width) of the output image |
+| `-h` | int32 | `512` | Sets the vertical resolution (height) of the ouput image |
+| `-r` | int32 | `512` | Sets both the horizontal and vertical resolution to the same input value |
+| `-p` | int (0-255) | `40` | Sets the level of precision to use. See the note about precision below. |
+| `-t` | int (0-255) | `2` | Sets the number of threads to use. |
 
-Chunk count determines the number of threads to use while rendering. Increasing this number to the number of CPU threads you have will boost performance significantly (maximum: 255). On some CPUs you can also take advantage thread over-subscription, and set the chunk count to more than your number of CPU threads.
-
-The program works with the following argument formats:
+Example:
 
 ```bash
-./mandelbrot
+./mandelbrot -x -1.0 -y 0.1 -s 0.1 -r 8196 -p 50 -t 32
 ```
-```bash
-./mandelbrot [xpos] [ypos]
-```
-```bash
-./mandelbrot [xpos] [ypos] [scale]
-```
-```bash
-./mandelbrot [xpos] [ypos] [scale] [h_res] [v_res]
-```
-```bash
-./mandelbrot [xpos] [ypos] [scale] [h_res] [v_res] [chunk_count]
-```
+
+### Precision
+
+Using lower precision values can greatly increase rendering times, however they also are LESS PRECISE! I have chosen 40 as the sweet-spot value as it is a balance of performance and precision.
+
+Using values greater than 64 will swap the renderer to high precision mode. Instead of using `double`, everything uses `__float128`. This is extremely precise, but is hundreds of times slower. 
 
 ### Color customization
 

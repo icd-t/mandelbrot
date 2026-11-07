@@ -1,5 +1,6 @@
 *
 a.out
+!makefile
 !README.md
 !output.bmp
 !/.git/
@@ -8,6 +9,8 @@ a.out
 
 !/src/
 !/src/*
+!/include/
+!/include/*
 !/output/
 !/output/*
 !/examples/
