@@ -287,7 +287,7 @@ void pass(Chunk &c, pfloat map_val, int x, int y, int r, int g, int b,
 void processChunk(Chunk &c, int chunkIndex, uint8_t precision) {
   // Depending on the precision value, use precision floats (float128) or use
   // standard doubles
-  if (precision < 50) {
+  if (precision < 64) {
     double map[256]{0};
     for (int i = 0; i < c.height; i++) {
       for (int j = 0; j < c.width; j++) {

@@ -37,7 +37,7 @@ Example:
 
 ### Precision
 
-Using lower precision values can greatly increase rendering times, however they also are LESS PRECISE! I have chosen 40 as the sweet-spot value as it is a balance of performance and precision.
+Using lower precision values can greatly increase rendering times, however its also LESS PRECISE! I have chosen 40 as the sweet-spot value as it is a balance of performance and precision.
 
 Using values greater than 64 will swap the renderer to high precision mode. Instead of using `double`, everything uses `__float128`. This is extremely precise, but is hundreds of times slower. 
 
